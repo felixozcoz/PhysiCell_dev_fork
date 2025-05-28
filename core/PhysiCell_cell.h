@@ -164,7 +164,8 @@ class Cell_State
 class Cell : public Basic_Agent 
 {
  private: 
-	Cell_Container * container;
+	//Cell_Container * container;
+	Cell_RTree_Container * container; // use RTree for spatial indexing
 	int current_mechanics_voxel_index;
 	int updated_current_mechanics_voxel_index; // keeps the updated voxel index for later adjusting of current voxel index
 		
@@ -244,9 +245,10 @@ class Cell : public Basic_Agent
 	
 	void set_phenotype( Phenotype& phenotype ); // no longer needed?
 	void update_radius();
-	Cell_Container * get_container();
+	//Cell_Container * get_container();
+	Cell_RTree_Container * get_container();
 	
-	std::vector<Cell*>& cells_in_my_container( void ); 
+	std::vector<Cell*> cells_in_my_container( void ); 
 	std::vector<Cell*> nearby_cells( void ); // new in 1.8.0 
 	std::vector<Cell*> nearby_interacting_cells( void ); // new in 1.8.0 
 	
