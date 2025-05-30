@@ -622,28 +622,28 @@ void standard_update_cell_velocity( Cell* pCell, Phenotype& phenotype, double dt
 	pCell->state.neighbors.clear(); // new 1.8.0
 	
 	//First check the neighbors in my current voxel
-	std::vector<Cell*>::iterator neighbor;
+	//std::vector<Cell*>::iterator neighbor;
 	//std::vector<Cell*>::iterator end = pCell->get_container()->agent_grid[pCell->get_current_mechanics_voxel_index()].end();
-
-	std::vector<Cell*> neighbors = pCell->cells_in_my_container();
-
-	std::vector<Cell*>::iterator end = neighbors.end();
-	for(neighbor = neighbors.begin(); neighbor != end; ++neighbor)
+	//for(neighbor = pCell->get_container()->agent_grid[pCell->get_current_mechanics_voxel_index()].begin(); neighbor != end; ++neighbor)
+	auto cells = pCell->cells_in_my_container();
+	for( auto neighbor : cells)
 	{
-		pCell->add_potentials(*neighbor);
+		//pCell->add_potentials(*neighbor);
+		pCell->add_potentials(neighbor);
 	}
 	std::vector<int>::iterator neighbor_voxel_index;
 	std::vector<int>::iterator neighbor_voxel_index_end = 
 		pCell->get_container()->underlying_mesh.moore_connected_voxel_indices[pCell->get_current_mechanics_voxel_index()].end();
 
+	// new variables for bounding box checks
 	PointTy min_corner, max_corner;
 	BoxTy bounding_box;
-	std::vector<ValueTy> temp;
-	std::vector<Cell*> results; // for rtree query results
 
 	double dx = pCell->get_container()->underlying_mesh.dx;
 	double dy = pCell->get_container()->underlying_mesh.dy;
 	double dz = pCell->get_container()->underlying_mesh.dz; 
+
+	std::vector<Cell*> neighbors; 
 
 	for( neighbor_voxel_index = 
 		pCell->get_container()->underlying_mesh.moore_connected_voxel_indices[pCell->get_current_mechanics_voxel_index()].begin();
@@ -652,28 +652,31 @@ void standard_update_cell_velocity( Cell* pCell, Phenotype& phenotype, double dt
 	{
 		if(!is_neighbor_voxel(pCell, pCell->get_container()->underlying_mesh.voxels[pCell->get_current_mechanics_voxel_index()].center, pCell->get_container()->underlying_mesh.voxels[*neighbor_voxel_index].center, *neighbor_voxel_index))
 			continue;
+		//end = pCell->get_container()->agent_grid[*neighbor_voxel_index].end();
+		//for(neighbor = pCell->get_container()->agent_grid[*neighbor_voxel_index].begin();neighbor != end; ++neighbor)
+		//{
+		//	pCell->add_potentials(*neighbor);
+		//}
 
-		const std::vector<double> &neighbor_voxel_center = pCell->get_container()->underlying_mesh.voxels[*neighbor_voxel_index].center;
+		// 1. Extraer centro del voxel vecino con índice neighbor_voxel_index 
+		auto neighbor_voxel_center = pCell->get_container()->underlying_mesh.voxels[*neighbor_voxel_index].center;
 
-		// set bounding box corners
+		// 2. Crear un bounding box para el voxel vecino
 		bg::assign_values(min_corner, neighbor_voxel_center[0] - dx * 0.5, neighbor_voxel_center[1] - dy * 0.5, neighbor_voxel_center[2] - dz * 0.5);
 		bg::assign_values(max_corner, neighbor_voxel_center[0] + dx * 0.5, neighbor_voxel_center[1] + dy * 0.5, neighbor_voxel_center[2] + dz * 0.5);
-
-		// Asignar bounding box del voxel vecino
 		bounding_box.min_corner() = min_corner;
 		bounding_box.max_corner() = max_corner;
 
-		//end = pCell->get_container()->agent_grid[*neighbor_voxel_index].end();
-		pCell->get_container()->rtree.query(bgi::intersects(bounding_box), std::back_inserter(temp));
-		for (const auto& val : temp)
-    		results.push_back(val.second);
-		end = results.end();
-		//for(neighbor = pCell->get_container()->agent_grid[*neighbor_voxel_index].begin();neighbor != end; ++neighbor)
-		for(neighbor = results.begin(); neighbor != end; ++neighbor)
-		{
-			pCell->add_potentials(*neighbor);
-		}
-		temp.clear(); // clear the temporary vector for the next iteration
+		neighbors.clear();
+		// 3. Check if the bounding box intersects with the cell's bounding box
+		pCell->get_container()->rtree.query(bgi::intersects(bounding_box) &&
+			bgi::satisfies([&](Cell* other) {
+				return other->get_current_mechanics_voxel_index() == *neighbor_voxel_index;
+			}), 
+			std::back_inserter(neighbors));
+
+		for(auto neighbor : neighbors)
+			pCell->add_potentials(neighbor);
 	}
 
 	pCell->update_motility_vector(dt); 

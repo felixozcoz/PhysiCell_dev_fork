@@ -136,44 +136,26 @@ namespace bgi = boost::geometry::index;
 typedef bg::model::point<double, 3, bg::cs::cartesian> PointTy;
 
 // indexable type for R-tree based on Cell position
-typedef std::pair<PointTy, Cell*> ValueTy;
+//typedef std::pair<PointTy, Cell*> ValueTy;
+typedef Cell* ValueTy;
 
 // Define the bounding box type for the R-tree
 typedef bg::model::box<PointTy> BoxTy;
 
 // Extrae el punto de ValueTy
 struct Indexable {
-	using result_type = const PointTy&;
-	result_type operator()(const ValueTy& v) const {
-		return v.first;
-	}
+	using result_type = const PointTy;
+	result_type operator()(const Cell* agent) const;
 };
 
 // Compara si dos celdas (por puntero) son iguales
 struct EqualTo {
 	bool operator()(const ValueTy& lhs, const ValueTy& rhs) const {
-		return lhs.second == rhs.second;
+		//return lhs.second == rhs.second;
+		return lhs == rhs; // Compara punteros de celdas
 	}
 };
 
-
-// Futher customization of the R-tree indexable type
-// Make Cell* indexable via its position
-/*
-namespace boost {
-namespace geometry {
-namespace index {
-	template<>
-	struct indexable<Cell*> {
-		typedef PointTy result_type;
-		result_type operator()(const Cell* const& c) const {
-			return PointTy(c->position[0], c->position[1], c->position[2]);
-		}
-	};
-}
-}
-}
-*/
 
 class Cell_RTree_Container : public BioFVM::Agent_Container {
 private:

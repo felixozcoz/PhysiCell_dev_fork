@@ -466,21 +466,18 @@ void Cell_RTree_Container::initialize(double x_start, double x_end, double y_sta
 }
 
 
-void Cell_RTree_Container::register_agent(Cell* agent)
+void Cell_RTree_Container::register_agent(Cell* agent) 
 {
-	PointTy point;
-	bg::assign_values(point, agent->position[0], agent->position[1], agent->position[2]);
+	//PointTy point(agent->position[0], agent->position[1], agent->position[2]);
 	
-	ValueTy value(point, agent);
-	rtree.insert(value);
+	//ValueTy value(point, agent);
+	rtree.insert(agent);
 }
 
 void Cell_RTree_Container::remove_agent(Cell* agent)
 {
-	PointTy point;
-	bg::assign_values(point, agent->position[0], agent->position[1], agent->position[2]);
-	ValueTy value(point, agent);
-	rtree.remove(value);
+	remove_agent_from_voxel(agent, agent->get_current_mechanics_voxel_index());
+	return;
 }
 
 void Cell_RTree_Container::update_all_cells(double t)
@@ -695,7 +692,12 @@ void Cell_RTree_Container::update_all_cells(double t, double phenotype_dt_ , dou
 
 void Cell_RTree_Container::remove_agent_from_voxel(Cell* agent, int voxel_index) // stub
 {
-	remove_agent(agent); // elimina el agente del R-tree
+	if (voxel_index < 0){
+		std::cerr << "[Warning] Tried to remove agent from invalid voxel index: " << voxel_index << std::endl;
+		return; 
+	}
+
+	rtree.remove(agent); // remove the agent from the R-tree
 }
 
 void Cell_RTree_Container::add_agent_to_voxel(Cell* agent, int voxel_index) // stub
@@ -726,5 +728,8 @@ void Cell_RTree_Container::flag_cell_for_removal(Cell* pCell)
 	return;
 }
 
+Indexable::result_type Indexable::operator()(const Cell* agent) const {
+			return PointTy(agent->position[0], agent->position[1], agent->position[2]);
+	}
 
 };

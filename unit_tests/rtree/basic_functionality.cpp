@@ -45,21 +45,19 @@ void test_rtree_basic_operations() {
     container.register_agent(cell3);
 
     // 4. Consultar punto cercano a cell1
-    PointTy query_point;
-    bg::assign_values(query_point, 1.0, 1.0, 2.0);
+    PointTy query_point(1.0, 1.0, 2.0);
 
     std::vector<ValueTy> result;
     container.rtree.query(bgi::nearest(query_point, 1), std::back_inserter(result));
 
     assert(!result.empty());
-    assert(result[0].second == cell1);
+    assert(result[0] == cell1);
     std::cout << " - Nearest neighbor query PASSED.\n";
 
     // 5. Consultar bounding box con centro entre cell1 y cell2
     result.clear();
-    PointTy min_point, max_point;
-    bg::assign_values(min_point, 0.0, 0.0, 0.0);
-    bg::assign_values(max_point, 3.0, 3.0, 3.0);
+    PointTy min_point(0.0, 0.0, 0.0);
+    PointTy max_point(3.0, 3.0, 3.0);
 
     container.rtree.query(bgi::intersects(BoxTy(min_point, max_point)), std::back_inserter(result));
     assert(result.size() == 2);
@@ -67,16 +65,26 @@ void test_rtree_basic_operations() {
     std::cout << " - Bounding box query PASSED.\n";
 
     // 6. Eliminar cell2
-    container.remove_agent(cell2);
+    container.rtree.remove(cell2); //remove_agent(cell2);
+
+    // 6bis. Consultar si cell2 aún está en el contenedor (no debería aparecer)
+    result.clear();
+    PointTy query_point_cell2(2.0, 2.0, 2.0); // Punto donde estaba cell2
+
+    container.rtree.query(bgi::nearest(query_point_cell2, 1), std::back_inserter(result));
+
+    // Buscar explícitamente cell2 en los resultados
+    assert(result[0] != cell2 && "Cell2 should not be found after removal");
+
+
 
     // 7. Consultar de nuevo cerca de cell2
-    query_point = PointTy();
     bg::assign_values(query_point, 15.0, 25.0, 35.0);
     result.clear();
     container.rtree.query(bgi::nearest(query_point, 1), std::back_inserter(result));
 
     assert(!result.empty());
-    assert(result[0].second != cell2);
+    assert(result[0] != cell2);
     std::cout << " - Removal PASSED.\n";
 
     // 7. Liberar memoria

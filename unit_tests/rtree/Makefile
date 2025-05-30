@@ -13,7 +13,7 @@ endif
 
 ARCH := native
 
-CFLAGS := -march=$(ARCH) -O0 -g -mfpmath=both -frtti -fopenmp -m64 -std=c++14
+CFLAGS := -march=$(ARCH) -fsanitize=address -O1 -g -mfpmath=both -frtti -fopenmp -m64 -std=c++14
 
 ifeq ($(OS),Windows_NT)
 else
@@ -62,4 +62,4 @@ $(TEST_OBJ): $(TEST_SRC)
 # o asumir que ya están compilados en la raíz y sólo enlazar
 
 clean:
-	rm -f $(TEST_OBJ) $(PROGRAM_NAME)
+	rm -f $(TEST_OBJ) $(PROGRAM_NAME) $(ALL_OBJECTS)
