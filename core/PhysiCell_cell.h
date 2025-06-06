@@ -164,12 +164,14 @@ class Cell_State
 class Cell : public Basic_Agent 
 {
  private: 
-	Cell_Container * container;
+	//Cell_Container * container;
+	Cell_RTree_Container * container; // use RTree for spatial indexing
 	int current_mechanics_voxel_index;
 	int updated_current_mechanics_voxel_index; // keeps the updated voxel index for later adjusting of current voxel index
 		
  public:
 	std::string type_name; 
+	std::vector<double> old_position; // new, used to store the position of the cell at the previous time step
  
 	Custom_Cell_Data custom_data;
 	Cell_Parameters parameters;
@@ -223,6 +225,7 @@ class Cell : public Basic_Agent
 	void copy_function_pointers(Cell*);
 	
 	void update_voxel_in_container(void);
+
 	void copy_data(Cell *);
 	
 	void ingest_cell( Cell* pCell_to_eat ); // for use in predation, e.g., immune cells 
@@ -244,13 +247,16 @@ class Cell : public Basic_Agent
 	
 	void set_phenotype( Phenotype& phenotype ); // no longer needed?
 	void update_radius();
-	Cell_Container * get_container();
+	// updated due to the new Cell_RTree_Container 
+	Cell_RTree_Container * get_container();
 	
-	std::vector<Cell*>& cells_in_my_container( void ); 
+	std::vector<Cell*> cells_in_my_container( void ); 
 	std::vector<Cell*> nearby_cells( void ); // new in 1.8.0 
 	std::vector<Cell*> nearby_interacting_cells( void ); // new in 1.8.0 
 	
 	void convert_to_cell_definition( Cell_Definition& cd ); 
+
+	
 };
 
 Cell* create_cell( Cell* (*custom_instantiate)() = NULL );  

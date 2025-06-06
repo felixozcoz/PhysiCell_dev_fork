@@ -622,15 +622,23 @@ void standard_update_cell_velocity( Cell* pCell, Phenotype& phenotype, double dt
 	pCell->state.neighbors.clear(); // new 1.8.0
 	
 	//First check the neighbors in my current voxel
-	std::vector<Cell*>::iterator neighbor;
-	std::vector<Cell*>::iterator end = pCell->get_container()->agent_grid[pCell->get_current_mechanics_voxel_index()].end();
-	for(neighbor = pCell->get_container()->agent_grid[pCell->get_current_mechanics_voxel_index()].begin(); neighbor != end; ++neighbor)
+	for( Cell* neighbor : pCell->cells_in_my_container())
 	{
-		pCell->add_potentials(*neighbor);
+		pCell->add_potentials(neighbor);
 	}
 	std::vector<int>::iterator neighbor_voxel_index;
 	std::vector<int>::iterator neighbor_voxel_index_end = 
 		pCell->get_container()->underlying_mesh.moore_connected_voxel_indices[pCell->get_current_mechanics_voxel_index()].end();
+
+	// new variables for bounding box checks in the spatial index
+	PointTy min_corner, max_corner;
+	BoxTy bounding_box;
+
+	double dx = pCell->get_container()->underlying_mesh.dx;
+	double dy = pCell->get_container()->underlying_mesh.dy;
+	double dz = pCell->get_container()->underlying_mesh.dz; 
+
+	std::vector<Cell*> neighbors; 
 
 	for( neighbor_voxel_index = 
 		pCell->get_container()->underlying_mesh.moore_connected_voxel_indices[pCell->get_current_mechanics_voxel_index()].begin();
@@ -639,11 +647,27 @@ void standard_update_cell_velocity( Cell* pCell, Phenotype& phenotype, double dt
 	{
 		if(!is_neighbor_voxel(pCell, pCell->get_container()->underlying_mesh.voxels[pCell->get_current_mechanics_voxel_index()].center, pCell->get_container()->underlying_mesh.voxels[*neighbor_voxel_index].center, *neighbor_voxel_index))
 			continue;
-		end = pCell->get_container()->agent_grid[*neighbor_voxel_index].end();
-		for(neighbor = pCell->get_container()->agent_grid[*neighbor_voxel_index].begin();neighbor != end; ++neighbor)
-		{
-			pCell->add_potentials(*neighbor);
-		}
+
+		// 1. Extract the center of the neighbor voxel with index neighbor_voxel_index
+		std::vector<double> neighbor_voxel_center = pCell->get_container()->underlying_mesh.voxels[*neighbor_voxel_index].center;
+
+		// 2. Create a bounding box around the neighbor voxel
+		bg::assign_values(min_corner, neighbor_voxel_center[0] - dx * 0.5, neighbor_voxel_center[1] - dy * 0.5, neighbor_voxel_center[2] - dz * 0.5);
+		bg::assign_values(max_corner, neighbor_voxel_center[0] + dx * 0.5, neighbor_voxel_center[1] + dy * 0.5, neighbor_voxel_center[2] + dz * 0.5);
+		bounding_box.min_corner() = min_corner;
+		bounding_box.max_corner() = max_corner;
+
+		neighbors.clear();
+
+		// 3. Check if the bounding box intersects with the cell's bounding box
+		pCell->get_container()->rtree.query(bgi::intersects(bounding_box) &&
+			bgi::satisfies([&](Cell* other) {
+				return other->get_current_mechanics_voxel_index() == *neighbor_voxel_index;
+			}), 
+			std::back_inserter(neighbors));
+
+		for(Cell* neighbor : neighbors)
+			pCell->add_potentials(neighbor);
 	}
 
 	pCell->update_motility_vector(dt); 

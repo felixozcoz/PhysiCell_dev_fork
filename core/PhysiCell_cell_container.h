@@ -74,6 +74,12 @@
 #include "../BioFVM/BioFVM_mesh.h"
 #include "../BioFVM/BioFVM_microenvironment.h"
 
+// Bibliotecas externas para RTree (Boost.Geometry) (NEW)
+#include <boost/geometry.hpp>
+#include <boost/geometry/index/rtree.hpp>
+#include <boost/geometry/geometries/point.hpp>
+#include <boost/geometry/geometries/box.hpp>
+
 namespace PhysiCell{
 
 class Cell; 
@@ -98,9 +104,12 @@ class Cell_Container : public BioFVM::Agent_Container
 	Cell_Container();
  	void initialize(double x_start, double x_end, double y_start, double y_end, double z_start, double z_end , double voxel_size);
 	void initialize(double x_start, double x_end, double y_start, double y_end, double z_start, double z_end , double dx, double dy, double dz);
-	std::vector<std::vector<Cell*> > agent_grid;
-	std::vector<std::vector<Cell*> > agents_in_outer_voxels;
 	
+	// ****** Sustitute this *******
+	std::vector<std::vector<Cell*> > agent_grid;
+	std::vector<std::vector<Cell*> > agents_in_outer_voxels; 
+	// *****************************
+
 	void update_all_cells(double t);
 	void update_all_cells(double t, double dt);
 	void update_all_cells(double t, double phenotype_dt, double mechanics_dt);
@@ -117,11 +126,85 @@ class Cell_Container : public BioFVM::Agent_Container
 	bool contain_any_cell(int voxel_index);
 };
 
+
+// *****  RTree Implementation *****
+
+
+namespace bg = boost::geometry;
+namespace bgi = boost::geometry::index;
+
+// Define 3D point type 
+typedef bg::model::point<double, 3, bg::cs::cartesian> PointTy;
+
+// Define the Cell pointer type as the value type for the R-tree
+typedef Cell* ValueTy;
+
+// Define the bounding box type for the R-tree querys (spatial indexing)
+typedef bg::model::box<PointTy> BoxTy;
+
+// Indexable type for R-tree based on Cell position
+struct Indexable {
+	// Indexable object
+	typedef PointTy result_type;
+
+	// Operator to convert a Cell pointer to a PointTy
+	result_type operator()(const Cell* agent) const;
+};
+
+// Define the equality operator for Cell pointers
+struct EqualTo {
+	// Define the equality operator for Cell pointers
+	bool operator()(const ValueTy& lhs, const ValueTy& rhs) const {
+		return lhs == rhs; // Compare pointers directly
+	}
+};
+
+class Cell_RTree_Container : public BioFVM::Agent_Container {
+private:
+	std::vector<Cell*> cells_ready_to_divide;
+	std::vector<Cell*> cells_ready_to_die;
+	int boundary_condition_for_pushed_out_agents = 0;
+	bool initialzed = false;
+
+public:
+	// R-tree for spatial indexing 
+	bgi::rtree<ValueTy, bgi::rstar<16>, Indexable, EqualTo> rtree; 
+
+	BioFVM::Cartesian_Mesh underlying_mesh;
+	std::vector<double> max_cell_interactive_distance_in_voxel;
+
+	int num_divisions_in_current_step = 0;
+	int num_deaths_in_current_step = 0;
+
+	double last_diffusion_time  = 0.0; 
+	double last_cell_cycle_time = 0.0;
+	double last_mechanics_time  = 0.0;
+
+	Cell_RTree_Container();
+	void initialize(double x_start, double x_end, double y_start, double y_end, double z_start, double z_end , double voxel_size);
+	void initialize(double x_start, double x_end, double y_start, double y_end, double z_start, double z_end , double dx, double dy, double dz);
+ 
+	void register_agent(Cell* agent);
+	void remove_agent(Cell* agent);
+
+	void update_all_cells(double t);
+	void update_all_cells(double t, double dt);
+	void update_all_cells(double t, double phenotype_dt, double mechanics_dt);
+	void update_all_cells(double t, double phenotype_dt, double mechanics_dt, double diffusion_dt ); 
+
+	void add_agent_to_outer_voxel(Cell* agent);
+	void remove_agent_from_voxel(Cell* agent, int voxel_index); 
+	void add_agent_to_voxel(Cell* agent, int voxel_index); 
+
+	void flag_cell_for_division(Cell* pCell);
+	void flag_cell_for_removal(Cell* pCell);
+};
+
 int find_escaping_face_index(Cell* agent);
 extern std::vector<Cell*> *all_cells; 
 
-Cell_Container* create_cell_container_for_microenvironment( BioFVM::Microenvironment& m , double mechanics_voxel_size );
-
+// updated for compatibility with new spatial indexing system (rtree)
+Cell_RTree_Container* create_cell_container_for_microenvironment( BioFVM::Microenvironment& m , double mechanics_voxel_size );
 
 
 };

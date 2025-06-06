@@ -415,6 +415,9 @@ Cell::Cell()
 	phenotype.molecular.sync_to_cell( this ); 
 	
 	// cell state should be fine by the default constructor 
+
+	// in order to find obsolete cell position in the rtree
+	old_position.resize( 3 , 0.0 ); 
 	
 	current_mechanics_voxel_index=-1;
 	
@@ -621,6 +624,7 @@ Cell* Cell::divide( )
 	//change my position to keep the center of mass intact 
 	// and then see if I need to update my voxel index
 	static double negative_one_half = -0.5; 
+	
 	axpy( &position, negative_one_half , rand_vec ); // position = position - 0.5*rand_vec; 
 
 	//If this cell has been moved outside of the boundaries, mark it as such.
@@ -680,9 +684,11 @@ void Cell::set_previous_velocity(double xV, double yV, double zV)
 
 bool Cell::assign_position(double x, double y, double z)
 {
+	// NOTA DEBUG:  usa assign_position sólo cuando se inicializa la mecánica de la célula,
 	position[0]=x;
 	position[1]=y;
 	position[2]=z;
+	old_position = position; // initialize old_position to current position
 	
 	// update microenvironment current voxel index
 	update_voxel_index();
@@ -699,7 +705,7 @@ bool Cell::assign_position(double x, double y, double z)
 			* phenotype.mechanics.relative_maximum_adhesion_distance;
 	}
 
-	get_container()->register_agent(this);
+	// get_container()->register_agent(this); (ORIGINAL CODE)
 	
 	if( !get_container()->underlying_mesh.is_position_valid(x,y,z) )
 	{	
@@ -709,6 +715,8 @@ bool Cell::assign_position(double x, double y, double z)
 		
 		return false;
 	}
+
+	get_container()->register_agent(this); // register if position is valid
 	
 	return true;
 }
@@ -827,11 +835,12 @@ void Cell::turn_off_reactions(double dt)
 	return; 
 }
 
-Cell_Container * Cell::get_container()
+// NOTE: unique function to get the container pointer
+Cell_RTree_Container * Cell::get_container()
 {
 	if(container == NULL)
 	{
-		container = (Cell_Container *)get_microenvironment()->agent_container;
+		container = (Cell_RTree_Container *)get_microenvironment()->agent_container;
 	}
 	
 	return container;
@@ -867,7 +876,7 @@ void Cell::update_position( double dt )
 	if( default_microenvironment_options.simulate_2D == true )
 	{ velocity[2] = 0.0; }
 	
-	std::vector<double> old_position(position); 
+	//std::vector<double> old_position(position); 
 	axpy( &position , d1 , velocity );  
 	axpy( &position , d2 , previous_velocity );  
 	// overwrite previous_velocity for future use 
@@ -912,29 +921,34 @@ void Cell::update_voxel_in_container()
 		{
 			{get_container()->remove_agent_from_voxel(this, get_current_mechanics_voxel_index());}
 		}
-		{get_container()->add_agent_to_outer_voxel(this);}
-		// std::cout<<"cell out of boundary..."<< __LINE__<<" "<<ID<<std::endl;
+		
+		old_position = position;
+		
 		current_mechanics_voxel_index=-1;
 		is_out_of_domain=true;
 		is_active=false;
 		return;
 	}
 	
-	// temp_current_voxel_index= get_current_mechanics_voxel_index();
-	// updated_current_mechanics_voxel_index=get_container()->underlying_mesh.nearest_voxel_index( position );
 	
 	// update mesh indices (if needed)
 	if(updated_current_mechanics_voxel_index!= get_current_mechanics_voxel_index())
-	{
-		{
-			container->remove_agent_from_voxel(this, get_current_mechanics_voxel_index());
-			container->add_agent_to_voxel(this, updated_current_mechanics_voxel_index);
-		}
 		current_mechanics_voxel_index=updated_current_mechanics_voxel_index;
+	
+	// update cell position
+	if (position != old_position)
+	{
+		container->remove_agent_from_voxel(this, get_current_mechanics_voxel_index());
+
+		old_position = position;
+
+		container->add_agent_to_voxel(this, updated_current_mechanics_voxel_index);
 	}
+
 	
 	return; 
 }
+
 
 void Cell::copy_data(Cell* copy_me)
 {
@@ -1215,12 +1229,11 @@ void delete_cell( int index )
 	(*all_cells)[index] = (*all_cells)[ (*all_cells).size()-1 ];
 	// shrink the vector
 	(*all_cells).pop_back();	
-	
-	// deregister agent in from the agent container
+
 	pDeleteMe->get_container()->remove_agent(pDeleteMe);
+	
 	// de-allocate (delete) the cell; 
 	delete pDeleteMe; 
-
 
 	return; 
 }
@@ -1264,6 +1277,7 @@ bool is_neighbor_voxel(Cell* pCell, std::vector<double> my_voxel_center, std::ve
 {
 	double max_interactive_distance = pCell->phenotype.mechanics.relative_maximum_adhesion_distance * pCell->phenotype.geometry.radius 
 		+ pCell->get_container()->max_cell_interactive_distance_in_voxel[other_voxel_index];
+
 	
 	int comparing_dimension = -1, comparing_dimension2 = -1;
 	if(my_voxel_center[0] == other_voxel_center[0] && my_voxel_center[1] == other_voxel_center[1])
@@ -1318,9 +1332,30 @@ bool is_neighbor_voxel(Cell* pCell, std::vector<double> my_voxel_center, std::ve
 	return true;
 }
 
-std::vector<Cell*>& Cell::cells_in_my_container( void )
+std::vector<Cell*> Cell::cells_in_my_container( void )
 {
-	return get_container()->agent_grid[get_current_mechanics_voxel_index()];
+	//return get_container()->agent_grid[get_current_mechanics_voxel_index()];
+
+	// Definir Bounding Box con tamaño del voxel y posición 
+	// de búsqueda el centro del voxel en el que se encuentra el agente
+	
+	std::vector<double> center = get_container()->underlying_mesh.voxels[get_current_mechanics_voxel_index()].center;
+		// dimensions of the voxel
+	double dx = get_container()->underlying_mesh.dx;
+	double dy = get_container()->underlying_mesh.dy;
+	double dz = get_container()->underlying_mesh.dz; 
+
+	PointTy min_corner(center[0] - dx * 0.5, center[1] - dy * 0.5, center[2] - dz * 0.5);
+	PointTy max_corner(center[0] + dx * 0.5, center[1] + dy * 0.5, center[2] + dz * 0.5);
+	BoxTy box(min_corner, max_corner);
+
+	std::vector<ValueTy> results;
+	get_container()->rtree.query(bgi::intersects(box)
+	&& bgi::satisfies([&](Cell* other){
+				return this->get_current_mechanics_voxel_index() == other->get_current_mechanics_voxel_index(); // sólo búsqueda geométrica (no física)
+			}) , std::back_inserter(results));
+
+	return results;
 }
 
 std::vector<Cell*> Cell::nearby_cells( void )
@@ -1530,6 +1565,7 @@ void Cell::fuse_cell( Cell* pCell_to_fuse )
 			std::cout << "cell fusion at " << new_position << " violates domain bounds" << std::endl; 
 			std::cout << get_default_microenvironment()->mesh.bounding_box << std::endl << std::endl; 
 		}
+		old_position = position; // save old position for debugging
 		position = new_position; 
 		update_voxel_in_container();
 
@@ -3464,15 +3500,31 @@ void detach_cells_as_spring( Cell* pCell_1 , Cell* pCell_2 )
 
 std::vector<Cell*> find_nearby_cells( Cell* pCell )
 {
-	std::vector<Cell*> neighbors = {}; 
+	//std::vector<Cell*> neighbors = {}; 
 
 	// First check the neighbors in my current voxel
+	/*
 	std::vector<Cell*>::iterator neighbor;
 	std::vector<Cell*>::iterator end =
 		pCell->get_container()->agent_grid[pCell->get_current_mechanics_voxel_index()].end();
 	for( neighbor = pCell->get_container()->agent_grid[pCell->get_current_mechanics_voxel_index()].begin(); neighbor != end; ++neighbor)
 	{ neighbors.push_back( *neighbor ); }
+	 */
 
+	std::vector<Cell*> neighbors = pCell->cells_in_my_container();
+	
+	std::vector<double> center = pCell->get_container()->underlying_mesh.voxels[pCell->get_current_mechanics_voxel_index()].center;
+	
+	double dx = pCell->get_container()->underlying_mesh.dx;
+	double dy = pCell->get_container()->underlying_mesh.dy;
+	double dz = pCell->get_container()->underlying_mesh.dz; 
+
+	PointTy min_corner, max_corner;
+	bg::assign_values(min_corner, center[0] - dx * 0.5, center[1] - dy * 0.5, center[2] - dz * 0.5);
+	bg::assign_values(max_corner, center[0] + dx * 0.5, center[1] + dy * 0.5, center[2] + dz * 0.5);
+	BoxTy box(min_corner, max_corner);
+
+	
 	std::vector<int>::iterator neighbor_voxel_index;
 	std::vector<int>::iterator neighbor_voxel_index_end = 
 		pCell->get_container()->underlying_mesh.moore_connected_voxel_indices[pCell->get_current_mechanics_voxel_index()].end();
@@ -3484,9 +3536,25 @@ std::vector<Cell*> find_nearby_cells( Cell* pCell )
 	{
 		if(!is_neighbor_voxel(pCell, pCell->get_container()->underlying_mesh.voxels[pCell->get_current_mechanics_voxel_index()].center, pCell->get_container()->underlying_mesh.voxels[*neighbor_voxel_index].center, *neighbor_voxel_index))
 			continue;
-		end = pCell->get_container()->agent_grid[*neighbor_voxel_index].end();
-		for(neighbor = pCell->get_container()->agent_grid[*neighbor_voxel_index].begin();neighbor != end; ++neighbor)
-		{ neighbors.push_back( *neighbor ); }
+
+		//end = pCell->get_container()->agent_grid[*neighbor_voxel_index].end();
+		//for(neighbor = pCell->get_container()->agent_grid[*neighbor_voxel_index].begin();neighbor != end; ++neighbor)
+		//{ neighbors.push_back( *neighbor ); }
+		std::vector<double> center = pCell->get_container()->underlying_mesh.voxels[*neighbor_voxel_index].center;
+			// dimensions of the voxel
+
+		// set bounding box corners
+		bg::assign_values(min_corner, center[0] - dx * 0.5, center[1] - dy * 0.5, center[2] - dz * 0.5);
+		bg::assign_values(max_corner, center[0] + dx * 0.5, center[1] + dy * 0.5, center[2] + dz * 0.5);
+		
+		// Asignar bounding box del voxel vecino
+		box.min_corner() = min_corner;
+		box.max_corner() = max_corner;
+
+		pCell->get_container()->rtree.query(bgi::intersects(box)
+		&& bgi::satisfies([&](Cell* other){
+			return other->get_current_mechanics_voxel_index() == *neighbor_voxel_index; // sólo búsqueda geométrica (no física)
+		}), std::back_inserter(neighbors));
 	}
 	
 	return neighbors; 
@@ -3496,10 +3564,14 @@ std::vector<Cell*> find_nearby_interacting_cells( Cell* pCell )
 {
 	std::vector<Cell*> neighbors = {}; 
 
+	std::vector<Cell*> cells_in_my_container = pCell->cells_in_my_container();
+
 	// First check the neighbors in my current voxel
 	std::vector<Cell*>::iterator neighbor;
-	std::vector<Cell*>::iterator end = pCell->get_container()->agent_grid[pCell->get_current_mechanics_voxel_index()].end();
-	for( neighbor = pCell->get_container()->agent_grid[pCell->get_current_mechanics_voxel_index()].begin(); neighbor != end; ++neighbor)
+	//std::vector<Cell*>::iterator end = pCell->get_container()->agent_grid[pCell->get_current_mechanics_voxel_index()].end();
+	std::vector<Cell*>::iterator end = cells_in_my_container.end();
+	//for( neighbor = pCell->get_container()->agent_grid[pCell->get_current_mechanics_voxel_index()].begin(); neighbor != end; ++neighbor)
+	for( neighbor = cells_in_my_container.begin(); neighbor != end; ++neighbor)
 	{
 		std::vector<double> displacement = (*neighbor)->position - pCell->position; 
 		double distance = norm( displacement ); 
@@ -3512,7 +3584,16 @@ std::vector<Cell*> find_nearby_interacting_cells( Cell* pCell )
 	std::vector<int>::iterator neighbor_voxel_index;
 	std::vector<int>::iterator neighbor_voxel_index_end = 
 		pCell->get_container()->underlying_mesh.moore_connected_voxel_indices[pCell->get_current_mechanics_voxel_index()].end();
-	
+
+
+	double dx = pCell->get_container()->underlying_mesh.dx;
+	double dy = pCell->get_container()->underlying_mesh.dy;
+	double dz = pCell->get_container()->underlying_mesh.dz; 
+
+	PointTy min_corner, max_corner;
+	BoxTy box;
+	std::vector<Cell*> temp;
+
 	for( neighbor_voxel_index = 
 		pCell->get_container()->underlying_mesh.moore_connected_voxel_indices[pCell->get_current_mechanics_voxel_index()].begin();
 		neighbor_voxel_index != neighbor_voxel_index_end; 
@@ -3520,8 +3601,27 @@ std::vector<Cell*> find_nearby_interacting_cells( Cell* pCell )
 	{
 		if(!is_neighbor_voxel(pCell, pCell->get_container()->underlying_mesh.voxels[pCell->get_current_mechanics_voxel_index()].center, pCell->get_container()->underlying_mesh.voxels[*neighbor_voxel_index].center, *neighbor_voxel_index))
 			continue;
-		end = pCell->get_container()->agent_grid[*neighbor_voxel_index].end();
-		for(neighbor = pCell->get_container()->agent_grid[*neighbor_voxel_index].begin();neighbor != end; ++neighbor)
+		
+		std::vector<double> center = pCell->get_container()->underlying_mesh.voxels[*neighbor_voxel_index].center;
+
+		// set bounding box corners
+		bg::assign_values(min_corner, center[0] - dx * 0.5, center[1] - dy * 0.5, center[2] - dz * 0.5);
+		bg::assign_values(max_corner, center[0] + dx * 0.5, center[1] + dy * 0.5, center[2] + dz * 0.5);
+
+		// Asignar bounding box del voxel vecino
+		box.min_corner() = min_corner;
+		box.max_corner() = max_corner;
+
+		temp.clear();
+		pCell->get_container()->rtree.query(bgi::intersects(box)
+			&& bgi::satisfies([&](Cell* other){
+				return other->get_current_mechanics_voxel_index() == *neighbor_voxel_index; // sólo búsqueda geométrica (no física)
+			}), std::back_inserter(temp));
+
+		//end = pCell->get_container()->agent_grid[*neighbor_voxel_index].end();
+		end = temp.end();
+		//for(neighbor = pCell->get_container()->agent_grid[*neighbor_voxel_index].begin();neighbor != end; ++neighbor)
+		for( neighbor = temp.begin(); neighbor != end; ++neighbor)
 		{
 			std::vector<double> displacement = (*neighbor)->position - pCell->position; 
 			double distance = norm( displacement ); 
